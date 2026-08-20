@@ -1,0 +1,35 @@
+[package]
+name = "symbiosis-sdk"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Rust client for the Symbiosis REST and websocket APIs."
+repository = "https://github.com/symbiosis-markets/sdk"
+publish = false
+
+[features]
+default = ["ws"]
+ws = ["dep:tokio-tungstenite", "dep:futures-util", "dep:tokio"]
+
+[dependencies]
+alloy-primitives = { version = "1.0", default-features = false, features = ["std", "serde"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
+hmac = "0.12"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "2.0"
+uuid = { version = "1.11", features = ["serde"] }
+
+futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink"] }
+tokio = { version = "1.39", optional = true, default-features = false, features = ["net"] }
+tokio-tungstenite = { version = "0.29", optional = true, features = ["rustls-tls-native-roots"] }
+
+[dev-dependencies]
+tokio = { version = "1.39", features = ["macros", "rt-multi-thread"] }
+
+[[example]]
+name = "rfq"
+required-features = ["ws"]
