@@ -121,7 +121,20 @@ while let Some(event) = subscription.events.next_event().await {
 
 Tickets are short-lived, so reconnect by calling the stream method again.
 
-See [examples/rfq.rs](examples/rfq.rs) for an end-to-end flow.
+## Examples
+
+Runnable flows live in [examples/](examples/):
+
+- [onboarding.rs](examples/onboarding.rs) — sign up, log in, and mint a
+  trading API key.
+- [custody.rs](examples/custody.rs) — deposit addresses, balances, and a
+  USDC withdrawal.
+- [rfq.rs](examples/rfq.rs) — the taker side end to end: request a quote,
+  watch the user stream, accept the first offer.
+- [market_maker.rs](examples/market_maker.rs) — the maker side: stream a
+  market's RFQ flow and quote every request.
+- [market_data.rs](examples/market_data.rs) — list open requests over plain
+  REST with a read-only key.
 
 ## Development
 
