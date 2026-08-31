@@ -2,11 +2,6 @@
 
 Rust client for the Symbiosis REST and websocket APIs.
 
-The wire types mirror the server's own definitions, so amounts are
-`alloy_primitives::U256`, ids are typed newtypes, and enums are real enums.
-The [OpenAPI spec](https://github.com/symbiosis-markets/backend/blob/dev/docs/openapi.yaml)
-remains the canonical contract.
-
 ## Install
 
 ```toml
@@ -63,8 +58,7 @@ non-production deployments.
 
 ## RFQ
 
-The whole taker flow — request a quote, accept the first offer, await the
-match — is one call:
+The whole taker flow is one call:
 
 ```rust,no_run
 # async fn run() -> Result<(), symbiosis_sdk::Error> {
