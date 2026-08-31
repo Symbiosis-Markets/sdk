@@ -24,6 +24,16 @@ pub enum Error {
     #[error("invalid base url: {0}")]
     InvalidUrl(String),
 
+    #[error("environment variable {0} is not set")]
+    MissingEnv(&'static str),
+
+    #[error("timed out before the flow completed")]
+    Timeout,
+
+    /// The event stream closed before the flow completed.
+    #[error("the event stream closed before the flow completed")]
+    StreamClosed,
+
     #[error("system clock is before the unix epoch")]
     Clock,
 

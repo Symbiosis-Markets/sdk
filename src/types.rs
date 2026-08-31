@@ -18,11 +18,28 @@ pub const SCALE_FACTOR: u64 = 1_000_000;
 /// The denominator for fee rates expressed in basis points.
 pub const BPS_SCALE: u64 = 10_000;
 
-/// API key scope names accepted by [`CreateApiKeyRequest`].
-pub mod scopes {
-    pub const READ: &str = "read";
-    pub const TRADE: &str = "trade";
-    pub const WITHDRAW: &str = "withdraw";
+/// Whole USDC as a scaled on-wire amount.
+pub fn usdc(amount: u64) -> U256 {
+    U256::from(amount) * U256::from(SCALE_FACTOR)
+}
+
+/// Whole outcome shares as a scaled on-wire amount.
+pub fn shares(count: u64) -> U256 {
+    U256::from(count) * U256::from(SCALE_FACTOR)
+}
+
+/// A price in cents as the scaled integer the quote endpoints expect.
+pub const fn price_cents(cents: u64) -> u64 {
+    cents * SCALE_FACTOR / 100
+}
+
+/// An API key scope, named in [`CreateApiKeyRequest`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scope {
+    Read,
+    Trade,
+    Withdraw,
 }
 
 macro_rules! uuid_id {
@@ -79,6 +96,14 @@ impl Display for AssetId {
 impl From<B256> for AssetId {
     fn from(b256: B256) -> Self {
         Self(b256)
+    }
+}
+
+impl std::str::FromStr for AssetId {
+    type Err = <B256 as std::str::FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(Self)
     }
 }
 
@@ -163,9 +188,8 @@ pub struct LoginResponse {
 #[derive(Debug, Clone, Serialize)]
 pub struct CreateApiKeyRequest {
     pub label: String,
-    /// See [`scopes`]. Password sessions cannot mint keys with the
-    /// `withdraw` scope.
-    pub scopes: Vec<String>,
+    /// Password sessions cannot mint keys with [`Scope::Withdraw`].
+    pub scopes: Vec<Scope>,
     pub expires_in_secs: Option<u64>,
 }
 
@@ -294,6 +318,25 @@ pub struct RequestQuoteBody {
     pub disclose_identity: bool,
 }
 
+impl RequestQuoteBody {
+    /// A quote request with identity disclosure off.
+    pub fn new(venue: Venue, asset_id: AssetId, side: Side, amount: U256) -> Self {
+        Self {
+            asset_id,
+            venue_id: venue,
+            amount,
+            side,
+            disclose_identity: false,
+        }
+    }
+
+    /// Disclose the requester's identity to quoters.
+    pub fn disclose_identity(mut self) -> Self {
+        self.disclose_identity = true;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RequestQuoteResponse {
     pub request_id: RequestId,
@@ -393,6 +436,29 @@ mod tests {
         let json = serde_json::to_value(asset).unwrap();
         assert_eq!(json["withdraw_asset_type"], "asset");
         assert_eq!(json["venue"], "kalshi");
+    }
+
+    #[test]
+    fn scope_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&Scope::Withdraw).unwrap(),
+            "\"withdraw\""
+        );
+    }
+
+    #[test]
+    fn scaling_helpers_use_six_decimals() {
+        assert_eq!(usdc(25), U256::from(25_000_000u64));
+        assert_eq!(shares(100), U256::from(100_000_000u64));
+        assert_eq!(price_cents(50), 500_000);
+    }
+
+    #[test]
+    fn asset_id_parses_from_hex() {
+        let id: AssetId = "0x0101010101010101010101010101010101010101010101010101010101010101"
+            .parse()
+            .unwrap();
+        assert_eq!(id, AssetId(B256::repeat_byte(1)));
     }
 
     #[test]

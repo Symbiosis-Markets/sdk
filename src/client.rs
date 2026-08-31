@@ -18,6 +18,12 @@ use crate::{Error, Result};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// The production REST endpoint.
+pub const PRODUCTION_URL: &str = "https://api.symbiosis.markets";
+
+/// The production websocket endpoint.
+pub const PRODUCTION_WS_URL: &str = "wss://ws.symbiosis.markets";
+
 /// A credential for authenticated endpoints.
 #[derive(Clone)]
 pub enum Credential {
@@ -136,6 +142,45 @@ impl Client {
             timeout: DEFAULT_TIMEOUT,
             http: None,
         }
+    }
+
+    /// A builder preconfigured with the production endpoints.
+    pub fn production() -> ClientBuilder {
+        let builder = Client::builder(PRODUCTION_URL);
+        #[cfg(feature = "ws")]
+        let builder = builder.ws_url(PRODUCTION_WS_URL);
+
+        builder
+    }
+
+    /// A client authenticated from the environment: the API key in
+    /// `SYMBIOSIS_API_KEY_ID` and `SYMBIOSIS_API_KEY_SECRET`, and the
+    /// production endpoints unless `SYMBIOSIS_API_URL` (and, with the `ws`
+    /// feature, `SYMBIOSIS_WS_URL`) override them.
+    pub fn from_env() -> Result<Client> {
+        let key_id = env_var("SYMBIOSIS_API_KEY_ID")?;
+        let secret = env_var("SYMBIOSIS_API_KEY_SECRET")?;
+
+        let base_url =
+            std::env::var("SYMBIOSIS_API_URL").unwrap_or_else(|_| PRODUCTION_URL.to_owned());
+        let builder = Client::builder(base_url);
+        #[cfg(feature = "ws")]
+        let builder = builder.ws_url(
+            std::env::var("SYMBIOSIS_WS_URL").unwrap_or_else(|_| PRODUCTION_WS_URL.to_owned()),
+        );
+
+        builder
+            .credential(Credential::api_key(key_id, secret))
+            .build()
+    }
+
+    /// A clone of this client using `credential`, keeping the endpoints,
+    /// timeout, and connection pool.
+    pub fn with_credential(&self, credential: Credential) -> Client {
+        let mut client = self.clone();
+        client.credential = Some(credential);
+
+        client
     }
 
     pub fn base_url(&self) -> &str {
@@ -352,6 +397,56 @@ impl Client {
         crate::ws::connect_rfq(ws_url, &ticket, markets).await
     }
 
+    /// The user stream with automatic reconnection: when the connection
+    /// drops, a fresh ticket is minted and the stream resumes after a short
+    /// pause. Events sent while disconnected are not replayed.
+    #[cfg(feature = "ws")]
+    pub async fn user_stream_reconnecting(&self) -> Result<ReconnectingUserStream> {
+        Ok(ReconnectingUserStream {
+            inner: self.user_stream().await?,
+            client: self.clone(),
+        })
+    }
+
+    /// The whole taker flow in one call: request a quote, accept the first
+    /// offer to arrive on the user stream, and return the match
+    /// confirmation. Fails with [`Error::Timeout`] if no offer arrives and
+    /// matches within `timeout`.
+    #[cfg(feature = "ws")]
+    pub async fn request_and_accept_first(
+        &self,
+        body: &RequestQuoteBody,
+        timeout: Duration,
+    ) -> Result<crate::ws::RfqMatch> {
+        use crate::ws::WsEvent;
+
+        // Connect before requesting so no offer can slip past.
+        let mut stream = self.user_stream().await?;
+        let request_id = self.request_quote(body).await?.request_id;
+
+        let flow = async {
+            let mut accepted = false;
+            while let Some(event) = stream.next_event().await {
+                match event? {
+                    WsEvent::RfqOffer(quote) if quote.request_id == request_id && !accepted => {
+                        self.accept_quote(quote.quote_id).await?;
+                        accepted = true;
+                    }
+                    WsEvent::RfqMatch(rfq_match) if rfq_match.request_id == request_id => {
+                        return Ok(rfq_match);
+                    }
+                    _ => {}
+                }
+            }
+
+            Err(Error::StreamClosed)
+        };
+
+        tokio::time::timeout(timeout, flow)
+            .await
+            .map_err(|_| Error::Timeout)?
+    }
+
     // Plumbing
 
     async fn request<T: DeserializeOwned>(
@@ -445,6 +540,40 @@ impl Client {
             message,
         })
     }
+}
+
+/// [`Client::user_stream`] wrapped with reconnection: connection drops are
+/// healed by minting a fresh ticket, while errors reconnecting cannot fix (a
+/// revoked credential, an undecodable frame) are returned.
+#[cfg(feature = "ws")]
+#[derive(Debug)]
+pub struct ReconnectingUserStream {
+    client: Client,
+    inner: crate::ws::EventStream,
+}
+
+#[cfg(feature = "ws")]
+impl ReconnectingUserStream {
+    const RECONNECT_PAUSE: Duration = Duration::from_secs(1);
+
+    /// The next event; reconnects instead of ending when the connection
+    /// closes or fails.
+    pub async fn next_event(&mut self) -> Result<crate::ws::WsEvent> {
+        loop {
+            match self.inner.next_event().await {
+                Some(Ok(event)) => return Ok(event),
+                Some(Err(Error::Ws(_))) | None => {
+                    tokio::time::sleep(Self::RECONNECT_PAUSE).await;
+                    self.inner = self.client.user_stream().await?;
+                }
+                Some(Err(error)) => return Err(error),
+            }
+        }
+    }
+}
+
+fn env_var(name: &'static str) -> Result<String> {
+    std::env::var(name).map_err(|_| Error::MissingEnv(name))
 }
 
 fn now_ms() -> Result<i64> {

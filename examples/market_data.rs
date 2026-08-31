@@ -6,19 +6,12 @@
 //! cargo run --example market_data
 //! ```
 
-use std::env;
-
+use symbiosis_sdk::Client;
 use symbiosis_sdk::types::{SCALE_FACTOR, U256, Venue};
-use symbiosis_sdk::{Client, Credential};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::builder("https://api.symbiosis.markets")
-        .credential(Credential::api_key(
-            env::var("SYMBIOSIS_API_KEY_ID")?,
-            env::var("SYMBIOSIS_API_KEY_SECRET")?,
-        ))
-        .build()?;
+    let client = Client::from_env()?;
 
     // Both filters are optional; None-None lists every open request.
     let open = client

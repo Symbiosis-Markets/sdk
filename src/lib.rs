@@ -16,12 +16,12 @@
 //! # Example
 //!
 //! ```no_run
-//! use symbiosis_sdk::{Client, Credential, types::{RequestQuoteBody, Side, Venue}};
+//! use symbiosis_sdk::Client;
 //!
 //! # async fn run() -> Result<(), symbiosis_sdk::Error> {
-//! let client = Client::builder("https://api.symbiosis.markets")
-//!     .credential(Credential::api_key("key-id", "key-secret"))
-//!     .build()?;
+//! // Production endpoints; the API key comes from SYMBIOSIS_API_KEY_ID and
+//! // SYMBIOSIS_API_KEY_SECRET.
+//! let client = Client::from_env()?;
 //!
 //! let balance = client.get_usdc_balance().await?;
 //! println!("balance: {}", balance.balance);
@@ -37,7 +37,9 @@ pub mod types;
 #[cfg(feature = "ws")]
 pub mod ws;
 
-pub use client::{Client, ClientBuilder, Credential};
+#[cfg(feature = "ws")]
+pub use client::ReconnectingUserStream;
+pub use client::{Client, ClientBuilder, Credential, PRODUCTION_URL, PRODUCTION_WS_URL};
 pub use error::Error;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

@@ -6,7 +6,7 @@
 
 use std::env;
 
-use symbiosis_sdk::types::{CreateApiKeyRequest, scopes};
+use symbiosis_sdk::types::{CreateApiKeyRequest, Scope};
 use symbiosis_sdk::{Client, Credential};
 
 #[tokio::main]
@@ -14,19 +14,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let email = env::var("SYMBIOSIS_EMAIL")?;
     let password = env::var("SYMBIOSIS_PASSWORD")?;
 
-    let anon = Client::builder("https://api.symbiosis.markets").build()?;
+    let anon = Client::production().build()?;
     let signup = anon.signup(&email, &password).await?;
     println!("account created: {}", signup.user_id);
 
     let token = anon.login(&email, &password).await?.token;
-    let client = Client::builder("https://api.symbiosis.markets")
-        .credential(Credential::session(token))
-        .build()?;
+    let client = anon.with_credential(Credential::session(token));
 
     let key = client
         .create_api_key(&CreateApiKeyRequest {
             label: "trading-bot".to_owned(),
-            scopes: vec![scopes::READ.to_owned(), scopes::TRADE.to_owned()],
+            scopes: vec![Scope::Read, Scope::Trade],
             expires_in_secs: Some(30 * 24 * 60 * 60),
         })
         .await?;

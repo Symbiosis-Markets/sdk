@@ -107,6 +107,31 @@ pub struct RfqSubscription {
     pub events: EventStream,
 }
 
+impl RfqSubscription {
+    /// The next open request: the snapshot entries first, then live
+    /// `RFQRequest` events, so one loop covers requests that were already
+    /// open and requests that arrive later. Other event kinds are skipped;
+    /// consume [`Self::events`] directly to see them. Drains
+    /// [`Self::snapshot`] as it goes.
+    pub async fn next_request(&mut self) -> Option<Result<PublicQuoteRequest>> {
+        while let Some(market) = self.snapshot.first_mut() {
+            if market.requests.is_empty() {
+                self.snapshot.remove(0);
+            } else {
+                return Some(Ok(market.requests.remove(0)));
+            }
+        }
+
+        loop {
+            match self.events.next_event().await? {
+                Ok(WsEvent::RfqRequest(request)) => return Some(Ok(request)),
+                Ok(_) => continue,
+                Err(error) => return Some(Err(error)),
+            }
+        }
+    }
+}
+
 /// Connect the user event stream at `{ws_url}/ws/user`.
 pub async fn connect_user(ws_url: &str, ticket: &str) -> Result<EventStream> {
     let (inner, _) = connect_async(format!("{ws_url}/ws/user?ticket={ticket}")).await?;
