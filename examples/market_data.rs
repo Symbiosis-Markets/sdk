@@ -15,12 +15,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Both filters are optional; None-None lists every open request.
     let open = client
-        .get_open_requests(Some(Venue::Polymarket), None)
+        .get_open_requests(Some(Venue::Polymarket), None, None, None)
         .await?;
-    println!("{} open requests on polymarket", open.requests.len());
+    println!("{} open requests on polymarket", open.items.len());
 
     let scale = U256::from(SCALE_FACTOR);
-    for request in &open.requests {
+    for request in &open.items {
         println!(
             "{} {:?} {} shares on {} ({})",
             request.request_id,
@@ -35,8 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // The user's own requests, across every market.
-    let mine = client.get_user_requests().await?;
-    println!("{} open requests of our own", mine.requests.len());
+    let mine = client.get_user_requests(None, None).await?;
+    println!("{} open requests of our own", mine.items.len());
 
     Ok(())
 }

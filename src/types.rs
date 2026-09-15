@@ -258,12 +258,6 @@ pub struct GetDepositAddressesResponse {
     pub addresses: Vec<DepositAddressRecord>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct BalanceRequest {
-    pub venue: Venue,
-    pub asset_id: AssetId,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct BalanceResponse {
     pub asset_id: AssetId,
@@ -275,6 +269,79 @@ pub struct BalanceResponse {
 pub struct UsdcBalanceResponse {
     pub balance: U256,
     pub pending_balance: U256,
+}
+
+/// One market balance from the paginated `get-balances` listing.
+#[derive(Debug, Clone, Deserialize)]
+pub struct VenueBalance {
+    pub venue: Venue,
+    pub asset_id: AssetId,
+    pub balance: U256,
+    pub pending_balance: U256,
+}
+
+/// One page of a list endpoint. A non-empty page always carries a
+/// `next_cursor`; the end of the list is an empty page.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Page<T> {
+    pub next_cursor: Option<String>,
+    pub items: Vec<T>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LedgerAccount {
+    Available,
+    Pending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LedgerDirection {
+    Credit,
+    Debit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LedgerReason {
+    Deposit,
+    Withdrawal,
+    ReserveRfq,
+    ReserveTrade,
+    Release,
+    Trade,
+    Fee,
+}
+
+/// One row of the append-only balance journal, newest first.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LedgerEntry {
+    /// Unique and strictly increasing.
+    pub entry_id: i64,
+    /// `None` (with `asset_id`) for entries against the USDC balance.
+    pub venue: Option<Venue>,
+    pub asset_id: Option<AssetId>,
+    pub account: LedgerAccount,
+    /// Signed delta in native token units, as a decimal string.
+    pub delta: String,
+    pub reason: LedgerReason,
+    /// The order, quote, match, or withdrawal id behind the movement, or the
+    /// deposit transaction id.
+    pub ref_id: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Filters for [`crate::Client::get_ledger`]. Every field is optional.
+#[derive(Debug, Clone, Default)]
+pub struct LedgerQuery {
+    /// `true` keeps only USDC entries; `false` keeps only market-asset entries.
+    pub usdc: Option<bool>,
+    pub asset_id: Option<AssetId>,
+    /// Only entries at or after this instant.
+    pub from: Option<DateTime<Utc>>,
+    pub last_cursor: Option<String>,
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -383,14 +450,46 @@ pub struct Quote {
     pub expires_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct GetRequestsResponse {
-    pub requests: Vec<PublicQuoteRequest>,
+/// One of the user's own quotes. Omits the requester's identity: that is
+/// disclosed only on a match.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct UserQuote {
+    pub quote_id: QuoteId,
+    pub request_id: RequestId,
+    /// Scaled by [`SCALE_FACTOR`].
+    pub price: u64,
+    pub status: QuoteStatus,
+    pub fee_bps: u16,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct GetOffersResponse {
-    pub offers: Vec<Quote>,
+pub struct GetQuotesByRequestResponse {
+    pub quotes: Vec<UserQuote>,
+}
+
+/// A settled match as returned to either counterparty, with the economic
+/// terms the slimmer websocket event does not carry.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct UserRfqMatch {
+    pub match_id: MatchId,
+    pub request_id: RequestId,
+    pub quote_id: QuoteId,
+    pub requester_id: UserId,
+    pub quoter_id: UserId,
+    pub venue_id: Venue,
+    pub asset_id: AssetId,
+    /// The side of the request; the quoter took the opposite.
+    pub side: Side,
+    /// Scaled by [`SCALE_FACTOR`].
+    pub price: u64,
+    pub amount: U256,
+    /// The taker fee rate pinned on the matched quote, paid by the requester.
+    pub fee_bps: u16,
+    /// The taker fee charged to the requester, in USDC.
+    pub fee_amount: U256,
+    pub created_at: DateTime<Utc>,
 }
 
 /// A venue and asset pair identifying a single market.

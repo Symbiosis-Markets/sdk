@@ -7,12 +7,13 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::types::{
-    ApiKeySummary, AssetId, AuditEvent, BalanceRequest, BalanceResponse, Chain,
-    CreateApiKeyRequest, CreateApiKeyResponse, CreateDepositAddressRequest, CreateQuoteBody,
-    DepositAddress, ErrorResponse, GetDepositAddressesResponse, GetOffersResponse,
-    GetRequestsResponse, LoginRequest, LoginResponse, OfferQuoteResponse, QuoteId, RequestId,
-    RequestQuoteBody, RequestQuoteResponse, SignupRequest, SignupResponse, UsdcBalanceResponse,
-    Venue, WithdrawRequest, WithdrawResponse, WsTicketResponse,
+    ApiKeySummary, AssetId, AuditEvent, BalanceResponse, Chain, CreateApiKeyRequest,
+    CreateApiKeyResponse, CreateDepositAddressRequest, CreateQuoteBody, DepositAddress,
+    ErrorResponse, GetDepositAddressesResponse, GetQuotesByRequestResponse, LedgerEntry,
+    LedgerQuery, LoginRequest, LoginResponse, OfferQuoteResponse, Page, PublicQuoteRequest,
+    QuoteId, RequestId, RequestQuoteBody, RequestQuoteResponse, SignupRequest, SignupResponse,
+    UsdcBalanceResponse, UserQuote, UserRfqMatch, Venue, VenueBalance, WithdrawRequest,
+    WithdrawResponse, WsTicketResponse,
 };
 use crate::{Error, Result};
 
@@ -283,10 +284,56 @@ impl Client {
             .await
     }
 
+    /// The user's balance in one market. Reserved amounts are reported as
+    /// `pending_balance`.
     pub async fn get_balance(&self, venue: Venue, asset_id: AssetId) -> Result<BalanceResponse> {
-        let body = BalanceRequest { venue, asset_id };
+        let path = format!("/custody/get-balance?venue={venue}&asset_id={asset_id}");
 
-        self.request(Method::GET, "/custody/get-balance", Some(&body), true)
+        self.request(Method::GET, &path, None::<&()>, true).await
+    }
+
+    /// One page of the user's market balances, optionally filtered by venue
+    /// and asset ids.
+    pub async fn get_balances(
+        &self,
+        venue: Option<Venue>,
+        asset_ids: &[AssetId],
+        last_cursor: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Page<VenueBalance>> {
+        let mut query = QueryString::new("/custody/get-balances");
+        if let Some(venue) = venue {
+            query.push("venue", venue.as_str());
+        }
+        if !asset_ids.is_empty() {
+            let joined = asset_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            query.push("asset_ids", &joined);
+        }
+        query.push_page(last_cursor, limit);
+
+        self.request(Method::GET, &query.path, None::<&()>, true)
+            .await
+    }
+
+    /// One page of the user's balance journal, newest first.
+    pub async fn get_ledger(&self, filter: &LedgerQuery) -> Result<Page<LedgerEntry>> {
+        let mut query = QueryString::new("/custody/get-ledger");
+        if let Some(usdc) = filter.usdc {
+            query.push("usdc", if usdc { "true" } else { "false" });
+        }
+        if let Some(asset_id) = filter.asset_id {
+            query.push("asset_id", &asset_id.to_string());
+        }
+        if let Some(from) = filter.from {
+            query.push("from", &from.to_rfc3339());
+        }
+        query.push_page(filter.last_cursor.as_deref(), filter.limit);
+
+        self.request(Method::GET, &query.path, None::<&()>, true)
             .await
     }
 
@@ -311,43 +358,76 @@ impl Client {
             .await
     }
 
-    /// Get the open requests for a venue and asset. Both filters are
-    /// optional; identifiers are hex and enum strings, so no encoding is
+    /// One page of the open requests for a venue and asset. Both filters
+    /// are optional; identifiers are hex and enum strings, so no encoding is
     /// needed.
     pub async fn get_open_requests(
         &self,
         venue: Option<Venue>,
         asset_id: Option<AssetId>,
-    ) -> Result<GetRequestsResponse> {
-        let mut path = String::from("/rfq/request");
-        let mut sep = '?';
+        last_cursor: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Page<PublicQuoteRequest>> {
+        let mut query = QueryString::new("/rfq/request");
+        query.push_market(venue, asset_id);
+        query.push_page(last_cursor, limit);
 
-        if let Some(venue) = venue {
-            path.push(sep);
-            path.push_str("venue_id=");
-            path.push_str(venue.as_str());
-            sep = '&';
-        }
-        if let Some(asset_id) = asset_id {
-            path.push(sep);
-            path.push_str("asset_id=");
-            path.push_str(&asset_id.to_string());
-        }
-
-        self.request(Method::GET, &path, None::<&()>, true).await
+        self.request(Method::GET, &query.path, None::<&()>, true)
+            .await
     }
 
-    /// Get all the user's open requests.
-    pub async fn get_user_requests(&self) -> Result<GetRequestsResponse> {
-        self.request(Method::GET, "/rfq/get-requests", None::<&()>, true)
+    /// One page of the user's open requests.
+    pub async fn get_user_requests(
+        &self,
+        last_cursor: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Page<PublicQuoteRequest>> {
+        let mut query = QueryString::new("/rfq/get-requests");
+        query.push_page(last_cursor, limit);
+
+        self.request(Method::GET, &query.path, None::<&()>, true)
             .await
     }
 
     /// Get the open quotes for one of the user's requests.
-    pub async fn get_quotes(&self, request_id: RequestId) -> Result<GetOffersResponse> {
+    pub async fn get_quotes(&self, request_id: RequestId) -> Result<GetQuotesByRequestResponse> {
         let path = format!("/rfq/quote?request_id={request_id}");
 
         self.request(Method::GET, &path, None::<&()>, true).await
+    }
+
+    /// One page of the quotes the user has made, across requests, newest
+    /// first.
+    pub async fn get_user_quotes(
+        &self,
+        venue: Option<Venue>,
+        asset_id: Option<AssetId>,
+        last_cursor: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Page<UserQuote>> {
+        let mut query = QueryString::new("/rfq/get-quotes");
+        query.push_market(venue, asset_id);
+        query.push_page(last_cursor, limit);
+
+        self.request(Method::GET, &query.path, None::<&()>, true)
+            .await
+    }
+
+    /// One page of the user's matches, on either side of the trade, newest
+    /// first.
+    pub async fn get_user_matches(
+        &self,
+        venue: Option<Venue>,
+        asset_id: Option<AssetId>,
+        last_cursor: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Page<UserRfqMatch>> {
+        let mut query = QueryString::new("/rfq/matches");
+        query.push_market(venue, asset_id);
+        query.push_page(last_cursor, limit);
+
+        self.request(Method::GET, &query.path, None::<&()>, true)
+            .await
     }
 
     /// Quote an open request. `price` is scaled by
@@ -504,8 +584,8 @@ impl Client {
 
                     request
                         .header("APIKEY", key_id)
-                        .header("HMAC_TIMESTAMP", timestamp_ms.to_string())
-                        .header("HMAC_SIGNATURE", crate::sign::sign(secret, &message))
+                        .header("X-Hmac-Timestamp", timestamp_ms.to_string())
+                        .header("X-Hmac-Signature", crate::sign::sign(secret, &message))
                 }
                 None => return Err(Error::MissingCredential),
             };
@@ -568,6 +648,48 @@ impl ReconnectingUserStream {
                 }
                 Some(Err(error)) => return Err(error),
             }
+        }
+    }
+}
+
+/// A path with a growing query string. Values are hex ids, enum names,
+/// cursors, and numbers, none of which need percent-encoding.
+struct QueryString {
+    path: String,
+    sep: char,
+}
+
+impl QueryString {
+    fn new(path: &str) -> Self {
+        QueryString {
+            path: path.to_owned(),
+            sep: '?',
+        }
+    }
+
+    fn push(&mut self, key: &str, value: &str) {
+        self.path.push(self.sep);
+        self.path.push_str(key);
+        self.path.push('=');
+        self.path.push_str(value);
+        self.sep = '&';
+    }
+
+    fn push_market(&mut self, venue: Option<Venue>, asset_id: Option<AssetId>) {
+        if let Some(venue) = venue {
+            self.push("venue_id", venue.as_str());
+        }
+        if let Some(asset_id) = asset_id {
+            self.push("asset_id", &asset_id.to_string());
+        }
+    }
+
+    fn push_page(&mut self, last_cursor: Option<&str>, limit: Option<u32>) {
+        if let Some(last_cursor) = last_cursor {
+            self.push("last_cursor", last_cursor);
+        }
+        if let Some(limit) = limit {
+            self.push("limit", &limit.to_string());
         }
     }
 }
