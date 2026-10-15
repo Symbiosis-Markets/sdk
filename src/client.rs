@@ -443,6 +443,23 @@ impl Client {
             .await
     }
 
+    /// Cancel one of the user's open quotes, releasing its reservation.
+    pub async fn cancel_quote(&self, offer_id: QuoteId) -> Result<()> {
+        let body = serde_json::json!({ "offer_id": offer_id });
+
+        self.request_empty(Method::DELETE, "/rfq/quote", Some(&body))
+            .await
+    }
+
+    /// Atomically cancel one of the user's open quotes and quote its request
+    /// anew. `price` is scaled by [`crate::types::SCALE_FACTOR`].
+    pub async fn replace_quote(&self, offer_id: QuoteId, price: u64) -> Result<OfferQuoteResponse> {
+        let body = serde_json::json!({ "offer_id": offer_id, "price": price });
+
+        self.request(Method::POST, "/rfq/replace", Some(&body), true)
+            .await
+    }
+
     /// Accept a quote, matching the request.
     pub async fn accept_quote(&self, offer_id: QuoteId) -> Result<()> {
         let body = serde_json::json!({ "offer_id": offer_id });
