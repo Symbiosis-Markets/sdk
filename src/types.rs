@@ -159,6 +159,7 @@ pub enum QuoteStatus {
     Open,
     Matched,
     Expired,
+    Cancelled,
 }
 
 // Auth

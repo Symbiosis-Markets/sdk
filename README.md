@@ -84,6 +84,8 @@ let rfq_match = client
 
 The granular methods — `request_quote`, `get_quotes`, `create_quote`,
 `accept_quote`, `cancel_request` — cover the same flow piece by piece.
+Quoters withdraw or reprice an open quote with `cancel_quote` and
+`replace_quote`.
 
 Prices are integers scaled by 1e6 (`types::SCALE_FACTOR`), amounts are `U256`
 in the same scale, and fees are basis points over `types::BPS_SCALE`. The
