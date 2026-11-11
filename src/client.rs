@@ -23,7 +23,7 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const PRODUCTION_URL: &str = "https://api.symbiosis.markets";
 
 /// The production websocket endpoint.
-pub const PRODUCTION_WS_URL: &str = "wss://ws.symbiosis.markets";
+pub const PRODUCTION_WS_URL: &str = "wss://api.symbiosis.markets";
 
 /// A credential for authenticated endpoints.
 #[derive(Clone)]

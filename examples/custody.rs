@@ -9,6 +9,7 @@ use std::env;
 
 use symbiosis_sdk::Client;
 use symbiosis_sdk::types::{Address, Chain, WithdrawAsset, WithdrawRequest, usdc};
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             recipient,
             asset: WithdrawAsset::Usdc { chain: Chain::Base },
             amount: usdc(25),
+            client_withdrawal_id: Uuid::new_v4(),
         })
         .await?;
     println!("withdrawal {:?}", withdrawal.status);

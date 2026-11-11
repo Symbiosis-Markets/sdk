@@ -363,6 +363,7 @@ pub struct WithdrawRequest {
     pub recipient: Address,
     pub asset: WithdrawAsset,
     pub amount: U256,
+    pub client_withdrawal_id: Uuid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
