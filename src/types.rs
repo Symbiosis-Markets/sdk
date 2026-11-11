@@ -242,13 +242,17 @@ pub struct CreateDepositAddressRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct DepositAddress {
     pub chain: Chain,
-    pub address: B256,
+    /// In the chain's own text form: EIP-55 checksummed hex on EVM chains,
+    /// base58 on Solana.
+    pub address: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DepositAddressRecord {
     pub chain: Chain,
-    pub address: B256,
+    /// In the chain's own text form: EIP-55 checksummed hex on EVM chains,
+    /// base58 on Solana.
+    pub address: String,
     pub nonce: i64,
     pub current: bool,
     pub created_at: DateTime<Utc>,
@@ -352,7 +356,7 @@ pub enum WithdrawAsset {
         venue: Venue,
         asset_id: AssetId,
     },
-    #[serde(rename = "u_s_d_c")]
+    #[serde(rename = "usdc")]
     Usdc {
         chain: Chain,
     },
@@ -366,13 +370,26 @@ pub struct WithdrawRequest {
     pub client_withdrawal_id: Uuid,
 }
 
+/// Where a withdrawal stands. A new market-asset withdrawal starts `Queued`
+/// and a new USDC withdrawal `AwaitingFunding`. Replaying a
+/// `client_withdrawal_id` reports the original withdrawal's current status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub enum WithdrawStatus {
     Queued,
+    Pending,
+    Confirmed,
+    Failed,
+    AwaitingFunding,
+    PendingPayout,
+    Completed,
+    NeedsReview,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawResponse {
+    /// Globally unique. A replayed `client_withdrawal_id` returns the
+    /// original id.
+    pub withdrawal_id: Uuid,
     pub status: WithdrawStatus,
 }
 
@@ -527,7 +544,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&usdc).unwrap(),
-            r#"{"withdraw_asset_type":"u_s_d_c","chain":"Polygon"}"#
+            r#"{"withdraw_asset_type":"usdc","chain":"Polygon"}"#
         );
 
         let asset = WithdrawAsset::Asset {
@@ -583,5 +600,49 @@ mod tests {
         let request: PublicQuoteRequest = serde_json::from_str(json).unwrap();
         assert_eq!(request.user_id, None);
         assert_eq!(request.amount, U256::from(100u64));
+    }
+
+    #[test]
+    fn deposit_addresses_decode_in_each_chain_text_form() {
+        let response: GetDepositAddressesResponse = serde_json::from_str(
+            r#"{"addresses":[
+                {"chain":"Polygon","address":"0x52908400098527886E0F7030069857D2E4169EE7","nonce":1,"current":true,"created_at":"2026-08-25T12:00:00Z"},
+                {"chain":"Solana","address":"4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T","nonce":0,"current":true,"created_at":"2026-08-25T12:00:00Z"}
+            ]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            response.addresses[0].address,
+            "0x52908400098527886E0F7030069857D2E4169EE7"
+        );
+        assert_eq!(
+            response.addresses[1].address,
+            "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T"
+        );
+
+        let created: DepositAddress = serde_json::from_str(
+            r#"{"chain":"Base","address":"0x52908400098527886E0F7030069857D2E4169EE7"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(created.chain, Chain::Base);
+    }
+
+    #[test]
+    fn withdraw_responses_decode_for_both_asset_kinds() {
+        let asset: WithdrawResponse = serde_json::from_str(
+            r#"{"withdrawal_id":"6f1c2f0e-7a53-4b7f-9d0e-3f1f5a2b9c11","status":"Queued"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(asset.status, WithdrawStatus::Queued);
+
+        let usdc: WithdrawResponse = serde_json::from_str(
+            r#"{"withdrawal_id":"6f1c2f0e-7a53-4b7f-9d0e-3f1f5a2b9c11","status":"AwaitingFunding"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(usdc.status, WithdrawStatus::AwaitingFunding);
     }
 }
